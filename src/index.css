@@ -1,0 +1,53 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500&display=swap');
+
+:root {
+  --display: 'DM Sans', sans-serif;
+  --serif: 'Instrument Serif', Georgia, serif;
+  --sans: 'Manrope', Arial, sans-serif;
+  color: #171713;
+  background: #161612;
+  font-family: var(--sans);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: #161612;
+  scroll-behavior: smooth;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100svh;
+  margin: 0;
+}
+
+button,
+a {
+  font: inherit;
+}
+
+::selection {
+  color: #e7e4da;
+  background: #1b4c41;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #d4d0c4;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid #d4d0c4;
+  border-radius: 10px;
+  background: #171713;
+}
