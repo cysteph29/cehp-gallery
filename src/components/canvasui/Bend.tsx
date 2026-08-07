@@ -31,6 +31,8 @@ export interface BendOptions {
   tumble?: number;
   /** Pointer tilt strength (0 to 1). The face leans subtly toward the cursor. 0 disables. */
   tilt?: number;
+  /** When true, output uses content alpha so non-content pixels stay fully transparent. */
+  transparent?: boolean;
 }
 
 export interface BendElements {
@@ -63,6 +65,7 @@ const DEFAULTS: Required<BendOptions> = {
   bottom: true,
   tumble: 0.5,
   tilt: 0.5,
+  transparent: false,
 };
 
 type PaintableCanvas = HTMLCanvasElement & {
@@ -103,6 +106,7 @@ uniform float uTiltX;
 uniform float uTiltY;
 uniform float uPhi;
 uniform float uRound;
+uniform float uTransparent;
 
 vec3 foldEdge (float sy, float amt) {
   float yf = 1.0 - uZone;
@@ -220,7 +224,20 @@ void main () {
   );
   vec4 base = texture(uContent, vec2(p.x, 1.0 - p.y));
 
-  outColor = vec4(mix(uBg, base.rgb, alpha * base.a), uCover);
+  if (uTransparent > 0.5) {
+    float insideViewport = step(uv.x, uMaxX);
+    float sampleInBounds =
+      step(0.0, srcX) *
+      step(srcX, uMaxX) *
+      step(0.0, srcY) *
+      step(srcY, 1.0);
+    outColor = vec4(
+      base.rgb,
+      base.a * alpha * uCover * insideViewport * sampleInBounds
+    );
+  } else {
+    outColor = vec4(mix(uBg, base.rgb, alpha * base.a), uCover);
+  }
 }`;
 
 export function supportsHtmlInCanvas(): boolean {
@@ -489,6 +506,7 @@ export function createBend(
       uniforms.uRound,
       Math.min(Math.max(config.rounding, 0) / h, zoneFrac),
     );
+    gl!.uniform1f(uniforms.uTransparent, config.transparent ? 1 : 0);
     gl!.bindFramebuffer(gl!.FRAMEBUFFER, null);
     gl!.viewport(0, 0, output.width, output.height);
     gl!.drawArrays(gl!.TRIANGLE_STRIP, 0, 4);
@@ -632,6 +650,7 @@ export function createBend(
     const x = px / w;
     let y = 1 - py / h;
     let zSum = 0;
+    let alpha = x >= 0 && x <= contentMaxX ? 1 : 0;
 
     if (Math.abs(phiCurrent) > 1e-4) {
       const tip = (sy: number, phi: number): [number, number] => {
@@ -712,7 +731,6 @@ export function createBend(
     };
 
     let srcY = y;
-    let alpha = 1;
     if (y >= 1 - zone) {
       const folded = fold(y, topCurrent);
       srcY = folded[0];
@@ -1010,6 +1028,8 @@ export function Bend({ children, className, style, ...options }: BendProps) {
     instanceRef.current?.setOptions(options);
   });
 
+  const transparentNative = native && Boolean(options.transparent);
+
   return (
     <div className={className} style={{ position: "relative", ...style }}>
       <canvas
@@ -1019,18 +1039,30 @@ export function Bend({ children, className, style, ...options }: BendProps) {
         suppressHydrationWarning
         style={
           native
-            ? { position: "absolute", inset: 0, width: "100%", height: "100%" }
+            ? {
+                position: "absolute",
+                inset: 0,
+                zIndex: 0,
+                width: "100%",
+                height: "100%",
+              }
             : { display: "none" }
         }
       >
         {native ? (
           <div
             ref={contentRef}
+            className={
+              transparentNative
+                ? "canvasui-scroll-content canvasui-scroll-content-transparent"
+                : "canvasui-scroll-content"
+            }
             style={{
               position: "relative",
               width: "100%",
               height: "100%",
               overflow: "auto",
+              scrollbarWidth: transparentNative ? "none" : undefined,
             }}
           >
             {children}
@@ -1040,8 +1072,10 @@ export function Bend({ children, className, style, ...options }: BendProps) {
       {!native ? (
         <div
           ref={contentRef}
+          className="canvasui-scroll-content"
           style={{
             position: "relative",
+            zIndex: 2,
             width: "100%",
             height: "100%",
             overflow: "auto",
@@ -1056,6 +1090,7 @@ export function Bend({ children, className, style, ...options }: BendProps) {
         style={{
           position: "absolute",
           inset: 0,
+          zIndex: 2,
           width: "100%",
           height: "100%",
           pointerEvents: "none",

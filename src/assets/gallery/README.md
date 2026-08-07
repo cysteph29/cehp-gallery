@@ -1,8 +1,8 @@
 # Gallery images
 
 Drop your image files directly in this folder. Every image here is picked up
-automatically (via `import.meta.glob` in `src/App.tsx`) and split, in
-alphabetical order, alternating between the left and right column — no code
+automatically (via `import.meta.glob` in `src/App.tsx`) and shown in
+alphabetical order — one image per row, alternating left then right — no code
 changes needed.
 
 Supported formats: `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.avif`

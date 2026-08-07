@@ -1,11 +1,21 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500&display=swap');
 
+@font-face {
+  font-family: 'PP Neue Machina Inktrap';
+  src:
+    url('./assets/fonts/PPNeueMachina-InktrapLight.woff2') format('woff2'),
+    url('./assets/fonts/PPNeueMachina-InktrapLight.woff') format('woff');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
-  --display: 'DM Sans', sans-serif;
+  --display: 'PP Neue Machina Inktrap', sans-serif;
   --serif: 'Instrument Serif', Georgia, serif;
   --sans: 'Manrope', Arial, sans-serif;
   color: #171713;
-  background: #161612;
+  background: #1C1917;
   font-family: var(--sans);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -18,7 +28,7 @@
 }
 
 html {
-  background: #161612;
+  background: #1C1917;
   scroll-behavior: smooth;
 }
 

@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from 'react'
 import { Bend } from '@/components/canvasui/Bend'
 import './App.css'
 
@@ -21,14 +22,45 @@ const images = [
   img8, img9, img10, img11, img12, img13, img14,
 ]
 
-const leftColumn = images.filter((_, index) => index % 2 === 0)
-const rightColumn = images.filter((_, index) => index % 2 === 1)
-
 function App() {
+  const stageRef = useRef<HTMLElement>(null)
+  const headingRef = useRef<HTMLHeadingElement>(null)
+
+  useLayoutEffect(() => {
+    const stage = stageRef.current
+    const heading = headingRef.current
+    if (!stage || !heading) return
+
+    const updateHeadingBottom = () => {
+      const headingBottom =
+        heading.getBoundingClientRect().bottom -
+        stage.getBoundingClientRect().top
+      stage.style.setProperty(
+        '--heading-bottom',
+        `${Math.ceil(headingBottom)}px`,
+      )
+    }
+
+    updateHeadingBottom()
+
+    const observer = new ResizeObserver(updateHeadingBottom)
+    observer.observe(stage)
+    observer.observe(heading)
+
+    void document.fonts.ready.then(updateHeadingBottom)
+
+    return () => observer.disconnect()
+  }, [])
+
   return (
-    <main className="stage">
+    <main className="stage" ref={stageRef}>
+      <header className="title-layer">
+        <h1 ref={headingRef}>A select collection of graphic work I did for IU School of Medicine [CEHP] as a marketing designer when I was in grad school.</h1>
+      </header>
+
       <Bend
         className="bend-shell"
+        transparent
         zone={240}
         angle={80}
         rounding={150}
@@ -42,34 +74,28 @@ function App() {
         bottom
       >
         <div className="gallery-page">
-          <section className="hero" id="top">
-            <h1>A select collection of graphic work I did for IU School of Medicine, CEHP Office as Marketing Designer</h1>
-          </section>
-
+          <div className="gallery-start-spacer" aria-hidden="true" />
           <section className="gallery-columns" aria-label="Gallery">
-            <div className="gallery-column">
-              {leftColumn.map((src, index) => (
-                <div className="gallery-image" key={src}>
+            {images.map((src, index) => (
+              <div
+                key={src}
+                className={
+                  index % 2 === 0
+                    ? 'gallery-row gallery-row--left'
+                    : 'gallery-row gallery-row--right'
+                }
+              >
+                <div className="gallery-image">
                   <img
                     src={src}
-                    alt={`Gallery piece ${index * 2 + 1}`}
+                    alt={`Gallery piece ${index + 1}`}
                     loading="lazy"
                   />
                 </div>
-              ))}
-            </div>
-            <div className="gallery-column">
-              {rightColumn.map((src, index) => (
-                <div className="gallery-image" key={src}>
-                  <img
-                    src={src}
-                    alt={`Gallery piece ${index * 2 + 2}`}
-                    loading="lazy"
-                  />
-                </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </section>
+          <div className="gallery-end-spacer" aria-hidden="true" />
         </div>
       </Bend>
     </main>
