@@ -9,11 +9,14 @@
   --gallery-end-reveal: 12svh;
 }
 
+/* Stack: source (flat) < title-layer < WebGL output. Title masks the source so
+   transparent fold edges do not reveal a second, unbent gallery copy.
+   Do not give .bend-shell a z-index — that traps the source above the title. */
 .title-layer {
   position: absolute;
   inset-block: 0;
   left: 50%;
-  z-index: 0;
+  z-index: 1;
   display: flex;
   width: min(100%, 1680px);
   align-items: center;
@@ -37,7 +40,6 @@
 
 .bend-shell {
   position: relative;
-  z-index: 1;
   height: 100%;
   width: min(100%, 1680px);
   margin: 0 auto;

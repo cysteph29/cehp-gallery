@@ -90,13 +90,15 @@ In `src/App.css`:
   - `inset-block: 0`
   - Horizontally centered
   - `width: min(100%, 1680px)`
-  - `z-index: 0`
+  - `z-index: 1` (above the flat Bend source canvas; below the WebGL output)
   - Flex-centered vertically and horizontally
   - `padding: 2rem`
-  - `background: #371722`
+  - Opaque stage-matching `background` (masks the flat source where fold edges are transparent)
   - `pointer-events: none`
 
 Although it uses `position: absolute`, it behaves as a fixed viewport layer because `.stage` never scrolls; only Bend’s internal content scrolls.
+
+**Stacking (required for transparent Bend):** flat source canvas → title-layer → WebGL output. Do **not** put `z-index` on `.bend-shell` — that creates a stacking context that traps the source above the title and causes duplicated strips at the bent edges. Do **not** use `opacity: 0` on the source canvas (breaks Chrome’s HTML-in-canvas paint callbacks).
 
 Move the existing `.hero h1` typography rules to `.title-layer h1`. Remove `.hero` styling.
 
@@ -104,9 +106,12 @@ Move the existing `.hero h1` typography rules to `.title-layer h1`. Remove `.her
 
 Set `.bend-shell` to:
 
-- `z-index: 1`
+- **No `z-index`** (must not create a stacking context above the title)
 - Existing viewport dimensions and `1680px` maximum width
 - `background: transparent`
+- `overflow: hidden`
+
+Inside Bend (native mode), keep source at `z-index: 0` and the WebGL output at `z-index: 2` so the bent layer paints above the title while the source stays under it for capture.
 
 Set all foreground layout wrappers to transparent:
 
