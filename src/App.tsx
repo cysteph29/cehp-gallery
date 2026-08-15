@@ -85,7 +85,7 @@ function App() {
                     : 'gallery-row gallery-row--right'
                 }
               >
-                <div className="gallery-image">
+                <div className="gallery-image" data-bend-tile>
                   <img
                     src={src}
                     alt={`Gallery piece ${index + 1}`}

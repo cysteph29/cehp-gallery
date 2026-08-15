@@ -9,9 +9,7 @@
   --gallery-end-reveal: 12svh;
 }
 
-/* Stack: source (flat) < title-layer < WebGL output. Title masks the source so
-   transparent fold edges do not reveal a second, unbent gallery copy.
-   Do not give .bend-shell a z-index — that traps the source above the title. */
+/* Stack: DOM fallback < title-layer < WebGL output. */
 .title-layer {
   position: absolute;
   inset-block: 0;
@@ -48,8 +46,12 @@
   box-shadow: 0 0 100px rgb(0 0 0 / 35%);
 }
 
-.bend-shell .canvasui-scroll-content-transparent::-webkit-scrollbar {
+.bend-shell .canvasui-scroll-content::-webkit-scrollbar {
   display: none;
+}
+
+.bend-shell[data-bend-ready] .canvasui-scroll-content {
+  opacity: 0;
 }
 
 .gallery-page {
