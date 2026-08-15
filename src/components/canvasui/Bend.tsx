@@ -15,6 +15,7 @@ export interface BendOptions {
   tumble?: number;
   tilt?: number;
   transparent?: boolean;
+  entranceReady?: boolean;
 }
 
 export interface BendInstance {
@@ -36,6 +37,7 @@ const DEFAULTS: Required<BendOptions> = {
   tumble: 0.5,
   tilt: 0.5,
   transparent: true,
+  entranceReady: true,
 };
 
 const VERT = `#version 300 es
@@ -251,6 +253,7 @@ function createBend(
   let gateTimer = 0;
   let gateCheckPending = false;
   let entranceStart = 0;
+  let settlePending = false;
 
   const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
   let reducedMotion = motionQuery.matches;
@@ -337,8 +340,19 @@ function createBend(
     content.style.overflow = locked ? "hidden" : "auto";
   }
 
+  function armGateTimeout() {
+    window.clearTimeout(gateTimer);
+    if (!config.entranceReady) return;
+    gateTimer = window.setTimeout(revealSettled, GATE_TIMEOUT);
+  }
+
   function revealSettled() {
+    if (!config.entranceReady) {
+      settlePending = true;
+      return;
+    }
     gateState = "live";
+    settlePending = false;
     window.clearTimeout(gateTimer);
     setScrollLocked(false);
     syncScroll();
@@ -346,7 +360,7 @@ function createBend(
   }
 
   function beginEntrance() {
-    if (gateState !== "loading") return;
+    if (gateState !== "loading" || !config.entranceReady) return;
     if (reducedMotion) {
       revealSettled();
       return;
@@ -686,7 +700,7 @@ function createBend(
       syncCanvasSize();
       setScrollLocked(true);
       setReady(true);
-      gateTimer = window.setTimeout(revealSettled, GATE_TIMEOUT);
+      armGateTimeout();
       syncScroll();
       refreshTiles();
     } catch {
@@ -725,7 +739,7 @@ function createBend(
     syncCanvasSize();
     setScrollLocked(true);
     setReady(true);
-    gateTimer = window.setTimeout(revealSettled, GATE_TIMEOUT);
+    armGateTimeout();
     syncScroll();
     refreshTiles();
   } catch {
@@ -735,7 +749,20 @@ function createBend(
 
   return {
     setOptions(next) {
+      const wasEntranceReady = config.entranceReady;
       Object.assign(config, next);
+      if (
+        gateState === "loading" &&
+        !wasEntranceReady &&
+        config.entranceReady
+      ) {
+        if (settlePending) {
+          revealSettled();
+        } else {
+          armGateTimeout();
+          scheduleGateCheck();
+        }
+      }
       syncScroll();
       start();
     },

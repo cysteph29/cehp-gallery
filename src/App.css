@@ -36,6 +36,16 @@
   transform: translateY(-4.5rem);
 }
 
+.heading-character {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .heading-character {
+    opacity: 1;
+  }
+}
+
 .bend-shell {
   position: relative;
   height: 100%;
