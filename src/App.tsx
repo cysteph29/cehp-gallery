@@ -89,7 +89,7 @@ function App() {
                   <img
                     src={src}
                     alt={`Gallery piece ${index + 1}`}
-                    loading="lazy"
+                    loading="eager"
                   />
                 </div>
               </div>

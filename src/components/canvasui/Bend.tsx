@@ -203,6 +203,13 @@ type Resources = {
   uniforms: Record<string, WebGLUniformLocation>;
 };
 
+type GateState = "loading" | "entrance" | "live";
+
+const ENTRANCE_DISTANCE = 96;
+const ENTRANCE_DURATION = 1000;
+const ENTRANCE_STAGGER = 35;
+const GATE_TIMEOUT = 6_000;
+
 function createBend(
   content: HTMLDivElement,
   output: HTMLCanvasElement,
@@ -240,6 +247,10 @@ function createBend(
   let tiltYTarget = 0;
   let tiltXCurrent = 0;
   let tiltYCurrent = 0;
+  let gateState: GateState = "loading";
+  let gateTimer = 0;
+  let gateCheckPending = false;
+  let entranceStart = 0;
 
   const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
   let reducedMotion = motionQuery.matches;
@@ -322,6 +333,59 @@ function createBend(
     bottomTarget = max > 1 && config.bottom ? ramp(max - content.scrollTop) : 0;
   }
 
+  function setScrollLocked(locked: boolean) {
+    content.style.overflow = locked ? "hidden" : "auto";
+  }
+
+  function revealSettled() {
+    gateState = "live";
+    window.clearTimeout(gateTimer);
+    setScrollLocked(false);
+    syncScroll();
+    start();
+  }
+
+  function beginEntrance() {
+    if (gateState !== "loading") return;
+    if (reducedMotion) {
+      revealSettled();
+      return;
+    }
+    gateState = "entrance";
+    window.clearTimeout(gateTimer);
+    entranceStart = performance.now();
+    start();
+  }
+
+  function tileRectsAreCurrent() {
+    const contentRect = content.getBoundingClientRect();
+    return tiles.every((tile) => {
+      const rect = tile.element.getBoundingClientRect();
+      return (
+        tile.x === rect.left - contentRect.left + content.scrollLeft &&
+        tile.y === rect.top - contentRect.top + content.scrollTop &&
+        tile.width === rect.width &&
+        tile.height === rect.height
+      );
+    });
+  }
+
+  function scheduleGateCheck() {
+    if (gateState !== "loading" || gateCheckPending) return;
+    gateCheckPending = true;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        gateCheckPending = false;
+        if (destroyed || contextLost || gateState !== "loading") return;
+        if (tiles.every((tile) => tile.texture) && tileRectsAreCurrent()) {
+          beginEntrance();
+        } else {
+          refreshTiles();
+        }
+      });
+    });
+  }
+
   function uploadTile(tile: Tile) {
     if (!resources || !tile.image.complete || tile.image.naturalWidth === 0) return;
     const width = Math.max(1, Math.round(tile.width * textureDpr));
@@ -363,6 +427,31 @@ function createBend(
     tile.rasterHeight = height;
   }
 
+  function uploadPlaceholder(tile: Tile) {
+    if (!resources || tile.texture) return;
+    const texture = gl.createTexture();
+    if (!texture) return;
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      1,
+      1,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      new Uint8Array([203, 199, 186, 255]),
+    );
+    tile.texture = texture;
+    tile.rasterWidth = 1;
+    tile.rasterHeight = 1;
+  }
+
   function refreshTiles() {
     if (contextLost || destroyed) return;
     const contentRect = content.getBoundingClientRect();
@@ -388,7 +477,11 @@ function createBend(
       tile.y = rect.top - contentRect.top + content.scrollTop;
       tile.width = rect.width;
       tile.height = rect.height;
-      uploadTile(tile);
+      if (image.complete && image.naturalWidth === 0) {
+        uploadPlaceholder(tile);
+      } else {
+        uploadTile(tile);
+      }
       next.push(tile);
       existing.delete(element);
     }
@@ -396,17 +489,19 @@ function createBend(
       if (tile.texture) gl.deleteTexture(tile.texture);
     }
     tiles = next;
-    const viewportTop = content.scrollTop;
-    const viewportBottom = viewportTop + content.clientHeight;
-    const visibleTiles = tiles.filter(
-      (tile) => tile.y < viewportBottom && tile.y + tile.height > viewportTop,
+    const allTexturesReady =
+      tiles.length > 0 && tiles.every((tile) => tile.texture);
+    const hasImageError = tiles.some(
+      (tile) => tile.image.complete && tile.image.naturalWidth === 0,
     );
-    if (
-      visibleTiles.length > 0 &&
-      visibleTiles.every((tile) => tile.texture)
-    ) {
+    if (gateState === "loading") {
+      if (hasImageError) {
+        revealSettled();
+      } else if (allTexturesReady) {
+        scheduleGateCheck();
+      }
+    } else {
       render();
-      setReady(true);
     }
     start();
   }
@@ -435,7 +530,7 @@ function createBend(
   }
 
   function render() {
-    if (!resources || contextLost || !visible) return;
+    if (!resources || contextLost || !visible || gateState === "loading") return;
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, output.width, output.height);
     gl.clearColor(0, 0, 0, 0);
@@ -449,12 +544,23 @@ function createBend(
     setCommonUniforms();
     const viewportTop = content.scrollTop - config.zone * 2;
     const viewportBottom = content.scrollTop + content.clientHeight + config.zone * 2;
-    for (const tile of tiles) {
-      if (!tile.texture || tile.y + tile.height < viewportTop || tile.y > viewportBottom) continue;
+    const entranceElapsed = performance.now() - entranceStart;
+    for (const [index, tile] of tiles.entries()) {
+      if (!tile.texture) continue;
+      let tileY = tile.y;
+      if (gateState === "entrance") {
+        const progress = Math.min(
+          Math.max((entranceElapsed - index * ENTRANCE_STAGGER) / ENTRANCE_DURATION, 0),
+          1,
+        );
+        const eased = 1 - (1 - progress) ** 4;
+        tileY += (1 - eased) * ENTRANCE_DISTANCE;
+      }
+      if (tileY + tile.height < viewportTop || tileY > viewportBottom) continue;
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, tile.texture);
       gl.uniform1i(resources.uniforms.uTile, 0);
-      gl.uniform4f(resources.uniforms.uTileRect, tile.x, tile.y, tile.width, tile.height);
+      gl.uniform4f(resources.uniforms.uTileRect, tile.x, tileY, tile.width, tile.height);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
   }
@@ -489,8 +595,15 @@ function createBend(
     tiltYCurrent += (tiltYTarget - tiltYCurrent) * tiltK;
     if (Math.abs(tiltXTarget - tiltXCurrent) < 1e-4) tiltXCurrent = tiltXTarget;
     if (Math.abs(tiltYTarget - tiltYCurrent) < 1e-4) tiltYCurrent = tiltYTarget;
+    if (
+      gateState === "entrance" &&
+      now - entranceStart >= ENTRANCE_DURATION + (tiles.length - 1) * ENTRANCE_STAGGER
+    ) {
+      revealSettled();
+    }
     render();
     if (
+      gateState === "entrance" ||
       topCurrent !== topTarget ||
       bottomCurrent !== bottomTarget ||
       over !== 0 ||
@@ -550,12 +663,15 @@ function createBend(
 
   function onMotionChange() {
     reducedMotion = motionQuery.matches;
+    if (reducedMotion && gateState === "entrance") revealSettled();
     start();
   }
 
   function onContextLost(event: Event) {
     event.preventDefault();
     contextLost = true;
+    window.clearTimeout(gateTimer);
+    setScrollLocked(false);
     cancelAnimationFrame(raf);
     running = false;
     setReady(false);
@@ -564,13 +680,18 @@ function createBend(
   function onContextRestored() {
     if (destroyed) return;
     contextLost = false;
+    gateState = "loading";
     try {
       initialiseResources();
       syncCanvasSize();
-      refreshTiles();
+      setScrollLocked(true);
+      setReady(true);
+      gateTimer = window.setTimeout(revealSettled, GATE_TIMEOUT);
       syncScroll();
+      refreshTiles();
     } catch {
       contextLost = true;
+      setScrollLocked(false);
       setReady(false);
     }
   }
@@ -602,6 +723,9 @@ function createBend(
   try {
     initialiseResources();
     syncCanvasSize();
+    setScrollLocked(true);
+    setReady(true);
+    gateTimer = window.setTimeout(revealSettled, GATE_TIMEOUT);
     syncScroll();
     refreshTiles();
   } catch {
@@ -623,6 +747,7 @@ function createBend(
     },
     destroy() {
       destroyed = true;
+      window.clearTimeout(gateTimer);
       cancelAnimationFrame(raf);
       setReady(false);
       resizeObserver.disconnect();
