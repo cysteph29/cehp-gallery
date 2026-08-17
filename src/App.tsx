@@ -179,6 +179,7 @@ function App() {
         top
         bottom
         entranceReady={tileEntranceReady}
+        {...{ loop: true }}
       >
         <div className="gallery-page">
           <div className="gallery-start-spacer" aria-hidden="true" />

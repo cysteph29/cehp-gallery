@@ -16,6 +16,7 @@ export interface BendOptions {
   tilt?: number;
   transparent?: boolean;
   entranceReady?: boolean;
+  loop?: boolean;
 }
 
 export interface BendInstance {
@@ -38,6 +39,7 @@ const DEFAULTS: Required<BendOptions> = {
   tilt: 0.5,
   transparent: true,
   entranceReady: true,
+  loop: false,
 };
 
 const VERT = `#version 300 es
@@ -254,6 +256,15 @@ function createBend(
   let gateCheckPending = false;
   let entranceStart = 0;
   let settlePending = false;
+  const loopState = {
+    cycleHeight: 0,
+    active: false,
+    layoutActive: false,
+    engageScrollTop: 0,
+    programmaticScroll: false,
+    userTravel: 0,
+    lastScrollTop: content.scrollTop,
+  };
 
   const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
   let reducedMotion = motionQuery.matches;
@@ -357,6 +368,7 @@ function createBend(
     setScrollLocked(false);
     syncScroll();
     start();
+    enableLoop();
   }
 
   function beginEntrance() {
@@ -520,6 +532,39 @@ function createBend(
     start();
   }
 
+  function measureLoopCycleHeight() {
+    const tileElements = Array.from(
+      content.querySelectorAll<HTMLElement>("[data-bend-tile]"),
+    );
+    if (tileElements.length < 2) return 0;
+    const firstRect = tileElements[0].getBoundingClientRect();
+    const secondRect = tileElements[1].getBoundingClientRect();
+    const lastRect = tileElements.at(-1)!.getBoundingClientRect();
+    const rowGap = secondRect.top - firstRect.bottom;
+    return lastRect.bottom - firstRect.top + rowGap;
+  }
+
+  function enableLoop() {
+    if (!config.loop || loopState.layoutActive) return;
+    const cycleHeight = measureLoopCycleHeight();
+    if (cycleHeight <= 0) return;
+    loopState.cycleHeight = cycleHeight;
+    content.dataset.bendLoop = "";
+    content.style.setProperty("--bend-loop-cycle-height", `${cycleHeight}px`);
+    content.dataset.bendLoopActive = "";
+    loopState.programmaticScroll = true;
+    content.scrollTop += cycleHeight;
+    loopState.lastScrollTop = content.scrollTop;
+    loopState.programmaticScroll = false;
+    loopState.layoutActive = true;
+    refreshTiles();
+    const lastTile = tiles.at(-1);
+    if (lastTile) {
+      loopState.engageScrollTop =
+        lastTile.y + lastTile.height - cycleHeight + 1;
+    }
+  }
+
   function setCommonUniforms() {
     if (!resources) return;
     const { uniforms } = resources;
@@ -558,24 +603,41 @@ function createBend(
     setCommonUniforms();
     const viewportTop = content.scrollTop - config.zone * 2;
     const viewportBottom = content.scrollTop + content.clientHeight + config.zone * 2;
-    const entranceElapsed = performance.now() - entranceStart;
-    for (const [index, tile] of tiles.entries()) {
-      if (!tile.texture) continue;
-      let tileY = tile.y;
-      if (gateState === "entrance") {
+    if (gateState === "entrance") {
+      const entranceElapsed = performance.now() - entranceStart;
+      for (const [index, tile] of tiles.entries()) {
+        if (!tile.texture) continue;
+        let tileY = tile.y;
         const progress = Math.min(
           Math.max((entranceElapsed - index * ENTRANCE_STAGGER) / ENTRANCE_DURATION, 0),
           1,
         );
         const eased = 1 - (1 - progress) ** 4;
         tileY += (1 - eased) * ENTRANCE_DISTANCE;
+        if (tileY + tile.height < viewportTop || tileY > viewportBottom) continue;
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, tile.texture);
+        gl.uniform1i(resources.uniforms.uTile, 0);
+        gl.uniform4f(resources.uniforms.uTileRect, tile.x, tileY, tile.width, tile.height);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       }
-      if (tileY + tile.height < viewportTop || tileY > viewportBottom) continue;
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, tile.texture);
-      gl.uniform1i(resources.uniforms.uTile, 0);
-      gl.uniform4f(resources.uniforms.uTileRect, tile.x, tileY, tile.width, tile.height);
-      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      return;
+    }
+    const cycleOffsets =
+      gateState === "live" && loopState.active
+        ? [-loopState.cycleHeight, 0, loopState.cycleHeight]
+        : [0];
+    for (const tile of tiles) {
+      if (!tile.texture) continue;
+      for (const offset of cycleOffsets) {
+        const tileY = tile.y + offset;
+        if (tileY + tile.height < viewportTop || tileY > viewportBottom) continue;
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, tile.texture);
+        gl.uniform1i(resources.uniforms.uTile, 0);
+        gl.uniform4f(resources.uniforms.uTileRect, tile.x, tileY, tile.width, tile.height);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      }
     }
   }
 
@@ -638,7 +700,43 @@ function createBend(
     raf = requestAnimationFrame(frame);
   }
 
+  function normalizeLoopScroll(scrollTop: number) {
+    const cycleHeight = loopState.cycleHeight;
+    if (!loopState.active || cycleHeight <= 0) return scrollTop;
+    const middleBandStart = cycleHeight;
+    const middleBandEnd = middleBandStart + cycleHeight;
+    if (scrollTop >= middleBandStart && scrollTop < middleBandEnd) {
+      return scrollTop;
+    }
+    const normalized =
+      middleBandStart +
+      ((scrollTop - middleBandStart) % cycleHeight + cycleHeight) %
+        cycleHeight;
+    loopState.programmaticScroll = true;
+    content.scrollTop = normalized;
+    loopState.lastScrollTop = normalized;
+    requestAnimationFrame(() => {
+      loopState.programmaticScroll = false;
+    });
+    return normalized;
+  }
+
   function onScroll() {
+    let scrollTop = content.scrollTop;
+    if (loopState.programmaticScroll) {
+      loopState.programmaticScroll = false;
+    } else if (gateState === "live") {
+      loopState.userTravel += Math.abs(scrollTop - loopState.lastScrollTop);
+      if (
+        loopState.layoutActive &&
+        !loopState.active &&
+        scrollTop >= loopState.engageScrollTop
+      ) {
+        loopState.active = true;
+      }
+      scrollTop = normalizeLoopScroll(scrollTop);
+    }
+    loopState.lastScrollTop = scrollTop;
     syncScroll();
     start();
   }

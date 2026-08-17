@@ -64,6 +64,18 @@
   opacity: 0;
 }
 
+.canvasui-scroll-content[data-bend-loop] {
+  overflow-anchor: none;
+}
+
+.canvasui-scroll-content[data-bend-loop][data-bend-loop-active]::before,
+.canvasui-scroll-content[data-bend-loop][data-bend-loop-active]::after {
+  content: "";
+  display: block;
+  height: var(--bend-loop-cycle-height);
+  pointer-events: none;
+}
+
 .gallery-page {
   min-height: 100%;
   overflow: hidden;
